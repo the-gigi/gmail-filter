@@ -10,7 +10,8 @@ from googleapiclient.errors import HttpError
 from bs4 import BeautifulSoup
 
 # If modifying these scopes, delete the file token.json.
-SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+SCOPES = ['https://www.googleapis.com/auth/gmail.readonly',
+          'https://www.googleapis.com/auth/gmail.modify']
 
 
 def main():
@@ -41,9 +42,10 @@ def main():
         if not labels:
             print('No labels found.')
             return
-        # print('Labels:')
-        # for label in labels:
-        #     print(label['name'])
+        label_dict = {x['name']: x['id'] for x in labels}
+        inbox_label_id = label_dict['INBOX']
+        kneedace_label_id = label_dict['Kneedace']
+        kneedace_filtered_label_id = label_dict['Kneedace Filtered']
 
         service = build('gmail', 'v1', credentials=creds)
         results = service.users().messages().list(userId='me', labelIds=['INBOX'], q='in:inbox',  maxResults=1).execute()
@@ -52,38 +54,19 @@ def main():
         for m in results['messages']:
             mid = m['id']
             r = service.users().messages().get(userId='me', id=mid, format='full').execute()
-            title = r['payload']['headers'][0]['value']
-            body = r['payload']['body']
-            if body['size'] > 0:
-                try:
-                    data = base64.b64decode(body['data'])
-                except:
-                    data = base64.b64decode(body['data'] + '==')
-            elif len(r['payload']['parts']) > 0:
-                parts = r['payload']['parts']
-                data = []
-                for p in parts:
-                    d = p['body']['data']
-                    try:
-                        part = base64.b64decode(d, '-_')
-                    except Exception as e:
-                        part = base64.b64decode(d + '==')
-                    data.append(part)
-            else:
-                data = r['snippet']
-
-
-            print(len(title) * '-')
-            print(title)
-            print(len(title) * '-')
-
-            soups = [BeautifulSoup(dd, 'html.parser') for dd in data]
-            lines = str(soups[0]).split('\r\n')
+            parts = r['payload'].get('parts', [])
+            if len(parts) != 2:
+                continue
+            d = parts[0]['body']['data']
+            data = base64.b64decode(d, '-_')
+            soup = BeautifulSoup(data, 'html.parser')
+            lines = str(soup).split('\r\n')
             start = 0
             end = 0
             name = ''
             email = ''
             item = ''
+            comments = ''
             lines = [line for line in lines if line]
             for i, line in enumerate(lines):
                 if line.startswith('   - Your Name'):
@@ -100,11 +83,31 @@ def main():
             if start > 0:
                 comments = lines[start].split(':')[1].strip() + '\n'
                 comments += '\n'.join(lines[start+1:end])
+
+            # skip non-kneedace emails
+            if start == 0 or len(name) == 0 or len(email) == 0:
+                continue
+
+            # keep only kneedace messages with comments (others will be filtered)
+            keep = len(comments.strip()) > 0
+
+            print('-' * 20)
             print(f'Name: {name}')
             print(f'Email: {email}')
             print(f'Item: {item}')
             print(f'Comments: {comments}')
+
+            post_data = dict(addLabelIds='', removeLabelIds=[inbox_label_id])
+            if keep:
+                """move to Kneedace label"""
+                post_data['addLabelIds'] = [kneedace_label_id]
+            else:
+                """move to Kneedace Filtered label"""
+                post_data['addLabelIds'] = [kneedace_filtered_label_id]
+
+            service.users().messages().modify(userId='me', id=mid, body=post_data).execute()
             print()
+
 
 
 
