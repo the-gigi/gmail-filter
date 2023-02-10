@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+gmail_filter_credentials.json
+
+.idea
+
+token.json
