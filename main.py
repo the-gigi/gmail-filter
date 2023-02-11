@@ -7,6 +7,9 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from bs4 import BeautifulSoup
+from pathology.path import Path
+
+script_dir = Path.script_dir()
 
 PREFIX = prefix = '  *   ' if platform.system() == 'Windows' else '   - '
 # If modifying these scopes, delete the file token.json.
@@ -120,6 +123,9 @@ def main():
     if len(sys.argv) != 2:
         print('Usage: python main.py <number of emails to scan>')
         sys.exit()
+
+    # Run in the script's directory
+    os.chdir(script_dir)
     count = int(sys.argv[1])
     service = get_gmail_service()
     results = service.users().messages().list(userId='me', labelIds=['INBOX'], q='in:inbox', maxResults=count).execute()
