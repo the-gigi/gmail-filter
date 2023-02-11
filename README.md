@@ -79,6 +79,14 @@ ls
 
 You should see a list of files including a `main.py`
 
+## Installing dependencies
+
+The git-filter program uses severl external dependencies. Instal the by running the following command:
+
+```
+pip install -r requirements.txt
+```
+
 ## Troubleshooting
 
 If during the installation process of any tool you run into errors such "command not found" you may need to close and open the PowerShell administrative Window so it picks up the environment.
