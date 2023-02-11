@@ -1,7 +1,8 @@
 # gmail-filter
-Read emails from Gmail and filter them
+The gmail-filter program read emails from your Gmail inbox, filters them based on internal criteria
+and move matching emails to two new labels.
 
-# Install form scratch on Windows
+# Install from scratch on Windows
 
 To run gmail-filter you need to install git and Python using chocolatey.
 
