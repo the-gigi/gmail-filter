@@ -33,7 +33,7 @@ Git is a tool for version control and management of source code. The gmail-filte
 
 In the PowerShell administrative console type:
 ```
-choco install git.install
+choco install git.install -y
 ```
 
 Verify git is up and running by typing:
@@ -48,7 +48,7 @@ The gmail-filter program is written in [Python](https://www.python.org), which r
 Install Python using the following command:
 
 ```
-choco install python
+choco install python -y
 ```
 
 Verify Python is installed correctly by typing:
@@ -86,6 +86,12 @@ The git-filter program uses severl external dependencies. Instal the by running 
 ```
 pip install -r requirements.txt
 ```
+
+## Generating gmail_filter_credentials.json
+
+gmail-filter requires a credentials file for a Google desktop application.
+Follow the instructions here:
+https://developers.google.com/gmail/api/quickstart/python
 
 ## Troubleshooting
 

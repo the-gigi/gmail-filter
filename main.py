@@ -1,15 +1,14 @@
 import base64
 import os.path
 import sys
-
+import platform
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-
 from bs4 import BeautifulSoup
 
+PREFIX = prefix = '  *   ' if platform.system() == 'Windows' else '   - '
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly',
           'https://www.googleapis.com/auth/gmail.modify']
@@ -54,6 +53,8 @@ def process_message(service, payload, mid):
         return
     data = base64.b64decode(d, '-_')
     soup = BeautifulSoup(data, 'html.parser')
+    if 'You have new submission' in str(soup).lower():
+        print('yes!')
     lines = str(soup).split('\r\n')
     start = 0
     end = 0
@@ -62,14 +63,15 @@ def process_message(service, payload, mid):
     item = ''
     comments = ''
     lines = [line for line in lines if line]
+
     for i, line in enumerate(lines):
-        if line.startswith('   - Your Name'):
+        if line.startswith('  *   Your Name :'):
             name = line.split(':')[1].strip()
-        elif line.startswith('   - Email'):
+        elif line.startswith(f'{PREFIX}Email'):
             email = line.split(':')[1].strip()
-        elif line.startswith('   - Select Item Purchased'):
+        elif line.startswith(f'{PREFIX}Select Item Purchased'):
             item = line.split(':')[1].strip()
-        if line.startswith('   - Any questions or comments so far?'):
+        if line.startswith(f'{PREFIX}Any questions or comments so far?'):
             start = i
         elif line.startswith('If you have any questions, reply to this email or contact us at'):
             end = i
@@ -79,7 +81,7 @@ def process_message(service, payload, mid):
         comments += '\n'.join(lines[start + 1:end])
 
     # skip non-kneadace emails
-    if start == 0 or len(name) == 0 or len(email) == 0:
+    if len(name) == 0 or len(email) == 0:
         return
 
     # keep only kneadace messages with comments (others will be filtered)
@@ -93,10 +95,10 @@ def process_message(service, payload, mid):
 
     label_dict = get_labels(service)
     inbox_label_id = label_dict['INBOX']
-    kneadace_label_id = label_dict['Kneadace']
-    kneadace_filtered_label_id = label_dict['Kneadace Filtered']
+    kneadace_label_id = label_dict['KneadAce Submission Comments']
+    kneadace_filtered_label_id = label_dict['KneadAce Filtered']
 
-    # Move kneadace message to `Kneadace` or `Kneadace Filtered` labels
+    # Move kneadace message to `kneadace-submission-comments` or `KneadAce Filtered` labels
     new_label = kneadace_label_id if keep else kneadace_filtered_label_id
     post_data = dict(addLabelIds=[new_label], removeLabelIds=[inbox_label_id])
 
@@ -115,7 +117,7 @@ def get_labels(service):
 
 
 def main():
-    if len (sys.argv) != 2:
+    if len(sys.argv) != 2:
         print('Usage: python main.py <number of emails to scan>')
         sys.exit()
     count = int(sys.argv[1])
@@ -124,12 +126,14 @@ def main():
     for m in results['messages']:
         mid = m['id']
         r = service.users().messages().get(userId='me', id=mid, format='full').execute()
-        snippet = r['snippet']
-        print(snippet)
-        print('-' * len(snippet))
+        headers = {x['name']: x['value'] for x in r['payload']['headers']}
+        subject = headers['Subject']
+        print(subject)
+        print('-' * len(subject))
+        if subject != 'You have new submission':
+            continue
         process_message(service, r, mid)
 
 
 if __name__ == '__main__':
     main()
-
