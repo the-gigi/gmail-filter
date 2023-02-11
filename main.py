@@ -1,5 +1,6 @@
 import base64
 import os.path
+import sys
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -14,7 +15,10 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.readonly',
           'https://www.googleapis.com/auth/gmail.modify']
 
 
-def main():
+def get_gmail_service():
+    """
+    :return:
+    """
     creds = None
     # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
@@ -33,90 +37,99 @@ def main():
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
 
-    try:
-        # Call the Gmail API
-        service = build('gmail', 'v1', credentials=creds)
-        results = service.users().labels().list(userId='me').execute()
-        labels = results.get('labels', [])
+    service = build('gmail', 'v1', credentials=creds)
+    return service
 
-        if not labels:
-            print('No labels found.')
+
+def process_message(service, payload, mid):
+    parts = payload.get('parts', [])
+    if len(parts) != 2:
+        parts = payload.get('payload', {}).get('parts', [])
+        if len(parts) != 2:
             return
-        label_dict = {x['name']: x['id'] for x in labels}
-        inbox_label_id = label_dict['INBOX']
-        kneedace_label_id = label_dict['Kneedace']
-        kneedace_filtered_label_id = label_dict['Kneedace Filtered']
+    try:
+        d = parts[0]['body']['data']
+    except Exception as _:
+        # Skip messages that don't have the expected structure
+        return
+    data = base64.b64decode(d, '-_')
+    soup = BeautifulSoup(data, 'html.parser')
+    lines = str(soup).split('\r\n')
+    start = 0
+    end = 0
+    name = ''
+    email = ''
+    item = ''
+    comments = ''
+    lines = [line for line in lines if line]
+    for i, line in enumerate(lines):
+        if line.startswith('   - Your Name'):
+            name = line.split(':')[1].strip()
+        elif line.startswith('   - Email'):
+            email = line.split(':')[1].strip()
+        elif line.startswith('   - Select Item Purchased'):
+            item = line.split(':')[1].strip()
+        if line.startswith('   - Any questions or comments so far?'):
+            start = i
+        elif line.startswith('If you have any questions, reply to this email or contact us at'):
+            end = i
 
-        service = build('gmail', 'v1', credentials=creds)
-        results = service.users().messages().list(userId='me', labelIds=['INBOX'], q='in:inbox',  maxResults=1).execute()
+    if start > 0:
+        comments = lines[start].split(':')[1].strip() + '\n'
+        comments += '\n'.join(lines[start + 1:end])
 
+    # skip non-kneadace emails
+    if start == 0 or len(name) == 0 or len(email) == 0:
+        return
 
-        for m in results['messages']:
-            mid = m['id']
-            r = service.users().messages().get(userId='me', id=mid, format='full').execute()
-            parts = r['payload'].get('parts', [])
-            if len(parts) != 2:
-                continue
-            d = parts[0]['body']['data']
-            data = base64.b64decode(d, '-_')
-            soup = BeautifulSoup(data, 'html.parser')
-            lines = str(soup).split('\r\n')
-            start = 0
-            end = 0
-            name = ''
-            email = ''
-            item = ''
-            comments = ''
-            lines = [line for line in lines if line]
-            for i, line in enumerate(lines):
-                if line.startswith('   - Your Name'):
-                    name = line.split(':')[1].strip()
-                elif line.startswith('   - Email'):
-                    email = line.split(':')[1].strip()
-                elif line.startswith('   - Select Item Purchased'):
-                    item = line.split(':')[1].strip()
-                if line.startswith('   - Any questions or comments so far?'):
-                    start = i
-                elif line.startswith('If you have any questions, reply to this email or contact us at'):
-                    end = i
+    # keep only kneadace messages with comments (others will be filtered)
+    keep = len(comments.strip()) > 0
 
-            if start > 0:
-                comments = lines[start].split(':')[1].strip() + '\n'
-                comments += '\n'.join(lines[start+1:end])
+    print('-' * 20)
+    print(f'Name: {name}')
+    print(f'Email: {email}')
+    print(f'Item: {item}')
+    print(f'Comments: {comments}')
 
-            # skip non-kneedace emails
-            if start == 0 or len(name) == 0 or len(email) == 0:
-                continue
+    label_dict = get_labels(service)
+    inbox_label_id = label_dict['INBOX']
+    kneadace_label_id = label_dict['Kneadace']
+    kneadace_filtered_label_id = label_dict['Kneadace Filtered']
 
-            # keep only kneedace messages with comments (others will be filtered)
-            keep = len(comments.strip()) > 0
+    # Move kneadace message to `Kneadace` or `Kneadace Filtered` labels
+    new_label = kneadace_label_id if keep else kneadace_filtered_label_id
+    post_data = dict(addLabelIds=[new_label], removeLabelIds=[inbox_label_id])
 
-            print('-' * 20)
-            print(f'Name: {name}')
-            print(f'Email: {email}')
-            print(f'Item: {item}')
-            print(f'Comments: {comments}')
-
-            post_data = dict(addLabelIds='', removeLabelIds=[inbox_label_id])
-            if keep:
-                """move to Kneedace label"""
-                post_data['addLabelIds'] = [kneedace_label_id]
-            else:
-                """move to Kneedace Filtered label"""
-                post_data['addLabelIds'] = [kneedace_filtered_label_id]
-
-            service.users().messages().modify(userId='me', id=mid, body=post_data).execute()
-            print()
+    service.users().messages().modify(userId='me', id=mid, body=post_data).execute()
 
 
+def get_labels(service):
+    results = service.users().labels().list(userId='me').execute()
+    labels = results.get('labels', [])
+
+    if not labels:
+        print('No labels found.')
+        return
+    label_dict = {x['name']: x['id'] for x in labels}
+    return label_dict
 
 
-
-    except HttpError as error:
-        # TODO(developer) - Handle errors from gmail API.
-        print(f'An error occurred: {error}')
+def main():
+    if len (sys.argv) != 2:
+        print('Usage: python main.py <number of emails to scan>')
+        sys.exit()
+    count = int(sys.argv[1])
+    service = get_gmail_service()
+    results = service.users().messages().list(userId='me', labelIds=['INBOX'], q='in:inbox', maxResults=count).execute()
+    for m in results['messages']:
+        mid = m['id']
+        r = service.users().messages().get(userId='me', id=mid, format='full').execute()
+        snippet = r['snippet']
+        print(snippet)
+        print('-' * len(snippet))
+        process_message(service, r, mid)
 
 
 if __name__ == '__main__':
     main()
-# [END gmail_quickstart]
+
